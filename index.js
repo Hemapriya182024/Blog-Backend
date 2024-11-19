@@ -157,6 +157,62 @@ app.get('/posts', async (req, res) => {
 });
 
 
+
+app.put('/post', uploadMiddleware.single('file'), async (req, res) => {
+  let newPath = null;
+
+  // Handle file renaming and ensure the file is valid
+  if (req.file) {
+    const { originalname, path } = req.file;
+    const ext = originalname.split('.').pop(); // Get file extension
+    newPath = `${path}.${ext}`; // Create new path with extension
+    try {
+      fs.renameSync(path, newPath); // Rename file with extension
+    } catch (error) {
+      console.error('Error renaming file:', error);
+      return res.status(500).json('Error renaming file');
+    }
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    return res.status(401).json('Authorization header missing');
+  }
+ 
+  const token = authHeader.split(' ')[1]; // Extract token from Authorization header
+  try {
+    const decoded = jwt.verify(token, secret);
+    const { id, title, summary, content } = req.body;
+
+    // Find post by ID
+    const postDoc = await Post.findById(id);
+    if (!postDoc) {
+      return res.status(404).json('Post not found');
+    }
+    console.log(req.headers['authorization']); // Backend: Check if the token is reaching the server
+    console.log(token);
+    // Check if the logged-in user is the author of the post
+    const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(decoded.id);
+    if (!isAuthor) {
+      return res.status(400).json('You are not the author');
+    }
+
+    // Update post details
+    postDoc.set({
+      title,
+      summary,
+      content,
+      cover: newPath ? newPath : postDoc.cover, // Update cover image path if new file is uploaded
+    });
+    
+    await postDoc.save(); // Save the updated post
+    res.json(postDoc); // Send updated post details back to the client
+  } catch (error) {
+    console.error('Error verifying JWT:', error);
+    res.status(401).json('Unauthorized');
+  }
+});
+
 app.get('/post/:id', async (req, res) => {
   try {
     const { id } = req.params; // Extract the id from route params
@@ -172,6 +228,9 @@ app.get('/post/:id', async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch post' });
   }
 });
+
+
+
 
 // Set the port where the server will listen
 const PORT = process.env.PORT;
